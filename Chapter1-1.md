@@ -1,4 +1,4 @@
-## Chapter 1: Why Modern Swift Concurrency?
+# Chapter 1: Why Modern Swift Concurrency?
 
 ### 배경
 
