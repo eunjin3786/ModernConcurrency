@@ -478,6 +478,207 @@ print문을 추가했는데  업데이트가 완료되었는지 확인하는 데
 
 앱을 빌드하면 보라색 워닝이 사라지는 것을 볼 수 있다. 
 
+## Canceling tasks in structured concurrency
+
+앞서 언급했듯이 스위프트와 동시 프로그래밍의 큰 도약 중 하나는 현대의 동시 코드가 **구조화된 방식(structured way)**으로 실행된다는 것이다. 
+
+태스크는 엄격한 계층 구조(hierarchy)로 실행되므로 런타임은 task의 parent가 누구인지 알 수 있고 새로운 task가 상속해야하는 기능이 무엇인지 알 수 있다. 
+
+예를들어, TickerView의 `task(_:)`modifier 를 살펴보자.
+
+1. `startTicker(_:)`  를 asynchronously 하게 콜한다. 
+2. `startTicker(_:)` 는 asynchronously 하게  `URLSession.bytes(from:delegate:)`를 기다린다.  
+3.  `URLSession.bytes(from:delegate:)` 는 `async sequence` 를 반환한다.  
+4. 비동기 시퀀스 ( `async sequence`  ) 를 반복시킨다. 
+   
+   
+
+<img width="563" alt="스크린샷 2022-05-01 오후 2 59 58" src="https://user-images.githubusercontent.com/9502063/166134227-3e780dd1-7452-437d-8f7d-765e79c5673d.png">
+
+
+
+각각의 `suspension point ` (너가 `await` 키워드를 보는 곳) 에서 스레드가 변경될 수 있다. 
+
+전체 프로세스를 `task(_:)` 안에서 시작시키므로 그 `async task` 는 모든 다른 task들의 parent 이다. (다른 task들의 실행 스레드나 일시중단 상태에 상관없이)
+
+`task(_:) ` modifier는 뷰가 사라지면 asynchronous code 를 취소시킨다.
+
+이 책의 뒷부분에서 자세히 알게 될 것이지만, 구조화된 동시성(structured concurrency) 덕분에 
+
+사용자가 화면 밖으로 이동할 때 모든 비동기 작업도 취소된다.
+
+
+
+<img width="537" alt="스크린샷 2022-05-01 오후 3 08 37" src="https://user-images.githubusercontent.com/9502063/166134448-34d62d10-f937-444b-9e51-670b6883bde7.png">
+
+
+
+실제로 이 작업이 어떻게 작동하는지 확인하려면 업데이트 화면으로 이동하여 Xcode 콘솔을 확인해보자.  LittleJohnModel.startTicker(_:)의  debug print 를 볼 수 있다. 
+
+<img width="590" alt="스크린샷 2022-05-01 오후 3 10 30" src="https://user-images.githubusercontent.com/9502063/166134495-971b21ff-fb39-437a-9dda-ba5ebc228c3b.png">
+
+그리고 뒤로가기를 해보자. TickerView 가 사라지고 `task(_:) ` modifier의 작업이 취소된다.
+
+이는 모든 child tasks를 취소시고 콘솔의 debug logs 도 멈춘 것을 볼 수 있다.
+
+<br/>
+
+그러나 콘솔에 추가 메세지가 출력되는 것을 확인할 수 있다. 
+
+<img width="584" alt="스크린샷 2022-05-01 오후 3 14 11" src="https://user-images.githubusercontent.com/9502063/166134590-3027e01b-4148-4402-b48f-bb832e9fe27d.png">
+
+SwiftUI는 TickerView가 dismiss 된 후에 alert을 띄우려는 코드 문제를 로깅하고 있다.
+
+이 문제는 런타임에서 `startTicker`에 대한 호출을 취소할 때, 일부 내부 tasks가 cancel error를 throw하기 때문에 발생한다.
+
+
+
+## Handling cancellation errors
+
+일시 중단된 작업 중 하나가 취소되어도 상관 없는 경우가 있고
+
+task가 취소되었을때 특별한 작업을 수행하는 경우도 있다. (위의 alert 띄우기 처럼) 
+
+<br/>
+
+TickerView의 `task(_:) ` modifier 로 가보자.
+
+```swift
+.task {
+  do {
+    try await model.startTicker(selectedSymbols)
+  } catch {
+    lastErrorMessage = error.localizedDescription
+  }
+}
+```
+
+<br/>
+
+여기서 모든 error을 catch에서 메세지를 보여주기 위해 저장하고 있다. 
+
+그러나 콘솔에서의 런타임 warning을 피하기 위해서는 취소를 다른 에러와 다르게 처리해야한다. 
+
+`Task.sleep(nanoseconds:) ` 같은 최신 비동기 API는 `CancelationError`를 발생시킨다. 
+
+사용자 지정 오류를 발생시키는 다른 API는 전용 취소 에러 코드가 있다. (ex. `URLSession`)
+
+```swift
+} catch {
+  if let error = error as? URLError, 
+    error.code == .cancelled {
+    return
+  }
+  
+  lastErrorMessage = error.localizedDescription
+}
+```
+
+<br/>
+
+새로운 catch block 은 던져진 에러가 cancelled error code가 있는 `URLError` 인지 확인한다.
+
+이 경우 화면에 메세지를 표시하지 않는다. 
+
+<br/>
+
+`URLError`  는 실시간 업데이트를 가져오는 진행 중인 `URLSession` 에서 발생한다. 
+
+만약 다른 modern API를 사용하다면, 그대신 `CancellationError`가 던져질 것이다. 
+
+<br/>
+
+앱을 한 번 더 실행하고 런타임 경고가 더 이상 나타나지 않는지 확인한다. 
+
+
+
+## Challenges
+
+#### Challenge: Adding extra error handling
+
+앱이 여전히 적절하게 처리하지 못하는 edge case가 하나 있다. 
+
+사용자가 가격 업데이트를 관찰하는 동안 서버를 사용할 수 없게 되면 어떻게 됩니까?
+
+가격 화면으로 이동한 다음 터미널 창에서 Control-C를 눌러 서버를 중지하면 이 상황을 재현할 수 있다.
+
+<br/>
+
+에러가 없기 때문에 에러메시지가 팝업으로 뜨지 않는다. 
+
+실제로 서버가 응답 시퀀스를 닫으면 응답 시퀀스가 완료된다. 
+
+이 경우 코드는 에러 없이 계속 실행되지만 더 이상의 업데이트는 생성되지 않는다.
+
+<br/>
+
+이 challenge에서 비동기 시퀀스가 종료될 때 `LittleJohnModel.tickerSymbols`를 reset하는 코드를 추가한 다음 
+
+업데이트 화면 밖으로 이동한다. 
+
+`LittleJohnModel.startTicker(_:)` 안에서 for 루프 뒤에 비동기 시퀀스가 예기치 않게 종료될 경우 `tickerSymbols`를 빈 배열로 설정하는 코드들 추가한다.
+
+`MainActor` 를 사용해서  이 업데이트를 하는 것을 잊지 마라. 
+
+
+
+```swift
+func startTicker(_ selectedSymbols: [String]) async throws {
+    ... 
+    for try await line in stream.lines {
+      let sortedSymbols = try JSONDecoder()
+        .decode([Stock].self, from: Data(line.utf8))
+        .sorted(by: { $0.name < $1.name })
+
+      await MainActor.run {
+        tickerSymbols = sortedSymbols
+        print("Updated: \(Date())")
+      }
+    }
+
+    // Challenge code.
+    await MainActor.run {
+      tickerSymbols = []
+    }
+ }
+```
+
+(실행해보면 for문이 계속 반복되다가 서버가 정지되면 for문을 나와 마지막 코드가 실행됨을 볼 수 있음)
+
+
+
+<br/>
+
+그리고 TickerView로 가서 새로운 modifier를 추가해라. 
+
+관찰 중인 ticker symbol 수를 옵져빙하고 selection이 reset 되는 경우, 뷰를 dismiss 한다.
+
+```swift
+.onChange(of: model.tickerSymbols.count) { newValue in
+  if newValue == 0 {
+    presentationMode.wrappedValue.dismiss()
+  }
+}
+```
+
+
+
+그러면 앱에서 실시간 업데이트를 보다가 서버를 정지하면 
+
+자동으로 업데이트 화면을 해제하고 symbols 목록으로 돌아갈 것이다. 
+
+<br/>
+
+## Key points
+
+- Swift 5.5는 새로운 동시성 모델을 도입했다. 이는 기존 동시성 모델이 가지고 있는 많은 문제 해결한다.
+  (참고: [기존 동시성 모델의 문제들](https://github.com/eunjin3786/ModernConcurrency/blob/master/Chapter1-1.md#reviewing-the-existing-concurrency-options))
+- `async`키워드는 함수를 비동기 함수로 정의한다. `await` 을 사용하면 비동기 함수의 결과를 비동기 방식으로 기다릴 수 있다.
+- 비동기 코드를 실행할 때 `onAppear(_:) `  대신 ` task(priority:_:) ` 라는 view modifier를 사용한다.  
+- `for try await` loop syntax 를 사용하면 비동기시퀀스를 자연스럽게 루프 돌릴 수 있다. 
+
+
+
 
 
 
