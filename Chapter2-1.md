@@ -56,7 +56,7 @@ Objective-C 자체는 언어가 시작된 지 몇 년이 지난 후인 iOS 4.0�
   따라서 수명(lifespan) 및 메모리 사용을 최적화할 수 없다
 
 - 메모리 관리를 너 스스로 해야한다. (viewModel을 weakly capture 해서,,)
--  컴파일러는 너가 에러 체리를 했는 지 확인할 방법이 없다. 실제로, 너가 closure에서 error를 핸들링하는 것을 잊으거나 completion을 모두 호출하지 않으면, 메소드는 조용히 freeze 된다.. 
+-  컴파일러는 너가 에러 처리를 했는 지 확인할 방법이 없다. 실제로, 너가 closure에서 error를 핸들링하는 것을 잊으거나 completion을 모두 호출하지 않으면, 메서드는 조용히 freeze 된다.. 
 
 <br/>
 
@@ -101,8 +101,8 @@ class ViewController {
 
 구체적으로..
 
-- `fetchServerStatus()` 는 실행을 일시 중단 및 재개할 수 있는 비동기 함수이다. (asynchronous function)
+- `fetchServerStatus()` 는 실행을 일시 중단 및 재개할 수 있는 비동기 함수(asynchronous function) 이다.
   async 키워드를 사용하여 표시한다.
-- `fetchServerStatus()`  는 `Data`를 리턴하거나 error을 throw 한다. 이는 컴파일 타임에 체크된다. (error일 경우를 처리하는 것을 까먹을 염려가 없다!)
+- `fetchServerStatus()`  는 `Data`를 리턴하거나 error을 throw 한다. 이는 컴파일 타임에 체크된다.(error일 경우를 처리하는 것을 까먹을 염려가 없다!)
 - Task 는  asynchronous context 에서 주어진 closure를 실행한다. 그래서 컴파일러는 해당 closure 안에서 어떤 코드가 안전한지 또는 비안전한지 알 수 있다. 
 - 마지막으로 await 키워드를 통해 비동기 함수를 호출할 때마다 런타임에 코드를 일시 중단하거나 취소할 수 있는 기회를 준다.  이를 통해 시스템은 현재 작업 대기열(current task queue)에 있는 우선순위를 지속적으로 변경할 수 있다. 
