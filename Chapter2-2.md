@@ -208,3 +208,80 @@ Task는 최상위 비동기 작업(**top-level asynchronous task**)을 나타내
 Task를 메인스레드에서 만들면 task는 메인 스레드에서 실행됨을 기억하십시오. 
 
 
+
+### MainActor
+
+JPEG 파일을 하나고르고 Silver plan 다운로드를 눌러봅니다.
+
+<img width="295" alt="스크린샷 2022-06-05 오후 4 47 14" src="https://user-images.githubusercontent.com/9502063/172040876-6b44c436-ab16-4783-8847-496ad5f25385.png">
+
+progress bar가 깜박이고 중간 정도만 채워지는 경우가 있습니다. 이는 백그라운드 스레드에서 UI를 업데이트한다는 힌트입니다. 
+
+또한 Xcode 콘솔에 로그 메시지가 표시되고 코드 에디터에 보라색 경고가 표시됩니다.
+
+<img width="692" alt="스크린샷 2022-06-05 오후 4 48 21" src="https://user-images.githubusercontent.com/9502063/172040914-fe4d4efb-12a2-47b7-9a67-64cba48c9596.png">
+
+
+
+`SuperStorageModel.swift ` 을 열고 `addDownload(file:):`와 ` updateDownload(name:progress:):` 앞에 `@MainActor` 를 붙여줍니다.
+
+```swift
+extension SuperStorageModel {
+  /// Adds a new download.
+  @MainActor func addDownload(name: String) {
+    let downloadInfo = DownloadInfo(id: UUID(), name: name, progress: 0.0)
+    downloads.append(downloadInfo)
+  }
+  
+  /// Updates a the progress of a given download.
+  @MainActor func updateDownload(name: String, progress: Double) {
+    if let index = downloads.firstIndex(where: { $0.name == name }) {
+      var info = downloads[index]
+      info.progress = progress
+      downloads[index] = info
+    }
+  }
+}
+```
+
+이 두 메서드에 대한 모든 호출은 자동으로 main actor에서 실행되며 따라서 메인 스레드에서 실행됩니다. 
+
+또한 두 메서드를 비동기적으로 호출해야합니다. 
+
+`download(file:) ` 로 가서 컴파일 에러를 수정합니다. 
+
+
+
+```swift
+  /// Downloads a file and returns its content.
+  func download(file: DownloadFile) async throws -> Data {
+    guard let url = URL(string: "http://localhost:8080/files/download?\(file.name)") else {
+      throw "Could not create the URL."
+    }
+
+    ✅ await addDownload(name: file.name)
+
+    let (data, response) = try await
+      URLSession.shared.data(from: url, delegate: nil)
+
+    ✅ await updateDownload(name: file.name, progress: 1.0)
+
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+      throw "The server responded with an error."
+    }
+
+    return data
+  }
+```
+
+
+
+## Key points
+
+- **async** 표시된 Functions, computed properties, closures 는 비동기 컨텍스트에서 비동기 실행됨. 
+  한번 또는 여러번 일시중단했다가 다시 재개될 수 있음
+- **await** 은  central async handler가 작업을 일시중단하고 다음에 실행할 건지 결정할 수 있게 함
+- **async let** 바인딩은 나중에 값 또는 오류를 제공할 것을 약속함. 이 결과에 await을 사용해서 접근할 수 있음
+- **Task()** 는 현재 actor에서 실행하기 위한 비동기 컨텍스트를 만듦. 또한 task의 우선순위를 지정할 수도 있음
+- ` DispatchQueue.main` 과 비슷하게 **MainActor** 는 메인스레드에서 코드를 실행하는 유형임
+
