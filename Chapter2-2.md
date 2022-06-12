@@ -284,5 +284,5 @@ extension SuperStorageModel {
 - **await** 은  central async handler가 작업을 일시중단하고 다음에 실행할 건지 결정할 수 있게 함
 - **async let** 바인딩은 나중에 값 또는 오류를 제공할 것을 약속함. 이 결과에 await을 사용해서 접근할 수 있음
 - **Task()** 는 현재 actor에서 실행하기 위한 비동기 컨텍스트를 만듦. 또한 task의 우선순위를 지정할 수도 있음
-- ` DispatchQueue.main` 과 비슷하게 **MainActor** 는 메인스레드에서 코드를 실행하는 유형임
+- **MainActor** 는 ` DispatchQueue.main` 과 비슷하게 메인스레드에서 코드를 실행하는 유형임
 
